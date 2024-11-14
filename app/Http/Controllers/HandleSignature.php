@@ -6,15 +6,13 @@ use Illuminate\Http\Request;
 
 class HandleSignature extends Controller
 {
-    public $signatureInput = 'x-amzn-attest=("@path" "x-amzn-marketplace-id" "user-agent")';
 
-    public function __invoke(Request $request): string
+    public function __invoke(Request $request)
     {
         $validated = $request->validate([
             'signatureInput' => 'required',
             'marketplaceId' => 'required',
             'userAgent' => 'required',
-            'publicKeyId' => 'required'
         ]);
 
         if (!$validated) {
@@ -22,29 +20,59 @@ class HandleSignature extends Controller
             dd('Fuck right off.');
         }
 
-        if ($request->signatureInput != $this->signatureInput) {
-            // TODO: Don't say fuck
-            dd('You, too, can fuck right off.');
+        // Use regular expression to extract the keyId value
+        preg_match('/keyid=([^;]+)/', $request->signatureInput, $matches);
+
+        // The keyId value will be stored in $matches[1]
+        if (isset($matches[1])) {
+            $keyId = $matches[1];
+        } else {
+            dd('No Key Present. Try again, por favor');
         }
 
-        $created = now();
+        // Use regular expression to extract the keyId value
+        preg_match('/created=([^;]+)/', $request->signatureInput, $matches);
 
-        $alg = 'apple-attest';
+        // The keyId value will be stored in $matches[1]
+        if (isset($matches[1])) {
+            $created = $matches[1];
+        } else {
+            dd('No Key Present. Try again, por favor');
+        }
 
-        $keyId = $request->publicKeyId;
+        // Use regular expression to extract the keyId value
+        preg_match('/nonce=([^;]+)/', $request->signatureInput, $matches);
 
-        $path = request()->getRequestUri();
+        // The keyId value will be stored in $matches[1]
+        if (isset($matches[1])) {
+            $nonce = $matches[1];
+        } else {
+            dd('No Key Present. Try again, por favor');
+        }
 
-        $dataToSign = $path . ' ' . $request->marketplaceId . ' ' . $request->userAgent;
-        $signature = hash_hmac('sha256', $dataToSign, $keyId);
+        $data = [];
+        $data['path'] = request()->getRequestUri();
+        $data['marketPlaceId'] = request()->marketplaceId;
+        $data['userAgent'] = request()->userAgent;
+        $data['created'] = $created;
+        $data['nonce'] = $nonce;
+        $data['keyId'] = $keyId;
 
-        // Generate the final Signature header
-        $signatureHeader = "v1=" . base64_encode($signature) . "; alg=\"{$alg}\"; created=\"{$created}\"; nonce=\"{$created}\"; keyid=\"{$keyId}\"";
+        $canonicalizedData = '';
+        foreach ($data as $key => $value) {
+            $canonicalizedData .= "{$key}={$value}\n";
+        }
+
+        $canonicalizedData = rtrim($canonicalizedData);  // Remove the trailing newline
+        $algorithm = 'sha256';  // Replace with the appropriate algorithm if needed
+
+        // Create the signature using HMAC
+        $signatureHeader = base64_encode(hash_hmac($algorithm, $canonicalizedData, $keyId));
 
         // Output the signature header
         return response()->json([
-            'Signature-Input' => $this->signatureInput,
-            'Signature' => $signatureHeader
+            'Signature-Input' => $request->signatureInput,
+            'Signature' => 'x-amzn-attest=:'.$signatureHeader.':'
         ]);
     }
 }
